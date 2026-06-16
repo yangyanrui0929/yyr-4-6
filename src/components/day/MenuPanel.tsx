@@ -1,9 +1,10 @@
 import { useGameStore } from "@/store/useGameStore";
 import Card from "@/components/common/Card";
 import { ChefHat, Plus, Minus } from "lucide-react";
+import { FLAVOR_INFO } from "@/game/config";
 
 export default function MenuPanel() {
-  const { recipes, ingredients, cookRecipe, cookMax } = useGameStore();
+  const { recipes, ingredients, cookRecipe, cookMax, calculateBaseFlavorsFromMenu } = useGameStore();
 
   const getIngredient = (id: string) => ingredients.find((i) => i.id === id);
 
@@ -16,6 +17,16 @@ export default function MenuPanel() {
       if (!ing || ing.count < req.count) return false;
     }
     return true;
+  };
+
+  const handleCook = (recipeId: string, amount: number) => {
+    const ok = cookRecipe(recipeId, amount);
+    if (ok) calculateBaseFlavorsFromMenu();
+  };
+
+  const handleCookMax = (recipeId: string) => {
+    const count = cookMax(recipeId);
+    if (count > 0) calculateBaseFlavorsFromMenu();
   };
 
   return (
@@ -32,8 +43,20 @@ export default function MenuPanel() {
                 <div className="flex items-center gap-2">
                   <span className="text-3xl">{recipe.emoji}</span>
                   <div>
-                    <div className="font-bold text-kitchen-brown">
+                    <div className="font-bold text-kitchen-brown flex items-center gap-1">
                       {recipe.name}
+                      <div className="flex gap-0.5 ml-1">
+                        {recipe.flavors.map((f) => (
+                          <span
+                            key={f}
+                            className="text-sm"
+                            style={{ color: FLAVOR_INFO[f].color }}
+                            title={FLAVOR_INFO[f].name + "味"}
+                          >
+                            {FLAVOR_INFO[f].emoji}
+                          </span>
+                        ))}
+                      </div>
                     </div>
                     <div className="text-sm text-green-700">
                       售价: 💰 {recipe.sellPrice}
@@ -51,7 +74,7 @@ export default function MenuPanel() {
                 </div>
               </div>
 
-              <div className="flex flex-wrap gap-2 mb-3">
+              <div className="flex flex-wrap gap-2 mb-2">
                 {recipe.ingredients.map((req) => {
                   const ing = getIngredient(req.ingredientId);
                   const enough = ing && ing.count >= req.count;
@@ -78,7 +101,7 @@ export default function MenuPanel() {
 
               <div className="flex gap-2">
                 <button
-                  onClick={() => cookRecipe(recipe.id, 1)}
+                  onClick={() => handleCook(recipe.id, 1)}
                   disabled={!ok}
                   className={`flex items-center gap-1 px-3 py-1.5 rounded-md text-sm font-medium transition-all ${
                     ok
@@ -92,7 +115,7 @@ export default function MenuPanel() {
                 <button
                   onClick={() => {
                     for (let i = 0; i < 5; i++) {
-                      if (canCook(recipe.id)) cookRecipe(recipe.id, 1);
+                      if (canCook(recipe.id)) handleCook(recipe.id, 1);
                     }
                   }}
                   disabled={!ok}
@@ -106,7 +129,7 @@ export default function MenuPanel() {
                   批量
                 </button>
                 <button
-                  onClick={() => cookMax(recipe.id)}
+                  onClick={() => handleCookMax(recipe.id)}
                   disabled={!ok}
                   className={`flex items-center gap-1 px-3 py-1.5 rounded-md text-sm font-medium transition-all ${
                     ok

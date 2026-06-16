@@ -5,6 +5,8 @@ import type {
   Enemy,
   Bullet,
   FloatingText,
+  FlavorType,
+  ReactionType,
 } from "@/types/game";
 import {
   INITIAL_GOLD,
@@ -17,11 +19,33 @@ import {
   ENEMY_CONFIGS,
   CELL_SIZE,
   generateWaves,
+  REACTION_CONFIGS,
 } from "@/game/config";
 import { loadGame, saveGame } from "@/utils/storage";
 
 let idCounter = 0;
 const genId = () => `${Date.now()}-${idCounter++}`;
+
+function calculateBaseFlavors(recipes: { prepared: number; flavors: FlavorType[] }[]): FlavorType[] {
+  const flavorCounts: Record<string, number> = {};
+  for (const recipe of recipes) {
+    if (recipe.prepared > 0) {
+      for (const flavor of recipe.flavors) {
+        flavorCounts[flavor] = (flavorCounts[flavor] || 0) + recipe.prepared;
+      }
+    }
+  }
+  const sorted = Object.entries(flavorCounts).sort((a, b) => b[1] - a[1]);
+  return sorted.slice(0, 3).map(([flavor]) => flavor as FlavorType);
+}
+
+function initialReactionCounts(): Record<ReactionType, number> {
+  const counts = {} as Record<ReactionType, number>;
+  for (const key of Object.keys(REACTION_CONFIGS) as ReactionType[]) {
+    counts[key] = 0;
+  }
+  return counts;
+}
 
 interface GameActions {
   resetGame: () => void;
@@ -60,18 +84,21 @@ interface GameActions {
   finishAllWaves: () => void;
   setGameOver: () => void;
   getCurrentWaves: () => ReturnType<typeof generateWaves>;
+  incrementReactionCount: (reaction: ReactionType) => void;
+  calculateBaseFlavorsFromMenu: () => void;
 }
 
 const createInitialState = (): GameState => {
   const saved = loadGame();
   if (saved) {
+    const recipes = saved.recipes ?? INITIAL_RECIPES.map((r) => ({ ...r }));
     return {
       day: saved.day ?? 1,
       phase: saved.phase ?? "day",
       gold: saved.gold ?? INITIAL_GOLD,
       lives: saved.lives ?? INITIAL_LIVES,
       ingredients: saved.ingredients ?? INITIAL_INGREDIENTS.map((i) => ({ ...i })),
-      recipes: saved.recipes ?? INITIAL_RECIPES.map((r) => ({ ...r })),
+      recipes,
       towers: [],
       enemies: [],
       bullets: [],
@@ -88,6 +115,8 @@ const createInitialState = (): GameState => {
       gridPath: GRID_PATH,
       isPaused: false,
       gameOver: false,
+      baseFlavors: calculateBaseFlavors(recipes),
+      reactionCounts: initialReactionCounts(),
     };
   }
 
@@ -114,6 +143,8 @@ const createInitialState = (): GameState => {
     gridPath: GRID_PATH,
     isPaused: false,
     gameOver: false,
+    baseFlavors: [],
+    reactionCounts: initialReactionCounts(),
   };
 };
 
@@ -144,6 +175,8 @@ export const useGameStore = create<GameState & GameActions>((set, get) => ({
       selectedTowerId: null,
       isPaused: false,
       gameOver: false,
+      baseFlavors: [],
+      reactionCounts: initialReactionCounts(),
     });
   },
 
@@ -247,6 +280,7 @@ export const useGameStore = create<GameState & GameActions>((set, get) => ({
   startNight: () => {
     const state = get();
     const waves = generateWaves(state.day);
+    const baseFlavors = calculateBaseFlavors(state.recipes);
     set({
       phase: "night",
       currentWave: 0,
@@ -260,6 +294,8 @@ export const useGameStore = create<GameState & GameActions>((set, get) => ({
       selectedTowerType: null,
       selectedTowerId: null,
       isPaused: false,
+      baseFlavors,
+      reactionCounts: initialReactionCounts(),
     });
   },
 
@@ -281,6 +317,7 @@ export const useGameStore = create<GameState & GameActions>((set, get) => ({
       selectedTowerType: null,
       selectedTowerId: null,
       isPaused: false,
+      baseFlavors: [],
     }));
     get().saveProgress();
   },
@@ -388,7 +425,10 @@ export const useGameStore = create<GameState & GameActions>((set, get) => ({
     const state = get();
     const enemy = state.enemies.find((e) => e.id === id);
     if (enemy) {
-      const reward = ENEMY_CONFIGS[enemy.type].reward;
+      let reward = ENEMY_CONFIGS[enemy.type].reward;
+      if (enemy.bonusRewardUntil > Date.now()) {
+        reward = Math.floor(reward * enemy.bonusRewardMultiplier);
+      }
       set((s) => ({
         gold: s.gold + reward,
         waveReward: s.waveReward + reward,
@@ -462,6 +502,20 @@ export const useGameStore = create<GameState & GameActions>((set, get) => ({
   setGameOver: () => set({ gameOver: true, phase: "settlement" }),
 
   getCurrentWaves: () => generateWaves(get().day),
+
+  incrementReactionCount: (reaction) =>
+    set((s) => ({
+      reactionCounts: {
+        ...s.reactionCounts,
+        [reaction]: s.reactionCounts[reaction] + 1,
+      },
+    })),
+
+  calculateBaseFlavorsFromMenu: () => {
+    const state = get();
+    const baseFlavors = calculateBaseFlavors(state.recipes);
+    set({ baseFlavors });
+  },
 }));
 
 export function getTowerStats(tower: { type: TowerType; level: number }) {

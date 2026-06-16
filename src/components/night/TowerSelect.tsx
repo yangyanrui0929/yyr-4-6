@@ -1,12 +1,12 @@
 import { useGameStore } from "@/store/useGameStore";
-import { TOWER_CONFIGS } from "@/game/config";
+import { TOWER_CONFIGS, FLAVOR_INFO } from "@/game/config";
 import type { TowerType } from "@/types/game";
 import Card from "@/components/common/Card";
 
 export default function TowerSelect() {
   const { selectedTowerType, selectTowerType, gold } = useGameStore();
 
-  const towers: TowerType[] = ["spatula", "chili", "freezer"];
+  const towers: TowerType[] = ["spatula", "chili", "freezer", "vinegar", "wok"];
 
   return (
     <Card title="防御塔商店" icon="🏰" className="h-full">
@@ -31,8 +31,20 @@ export default function TowerSelect() {
               <div className="flex items-center gap-3">
                 <span className="text-3xl">{config.emoji}</span>
                 <div className="flex-1">
-                  <div className="font-bold text-kitchen-brown">
+                  <div className="font-bold text-kitchen-brown flex items-center gap-1">
                     {config.name}
+                    <div className="flex gap-0.5 ml-1">
+                      {config.flavors.map((f) => (
+                        <span
+                          key={f}
+                          className="text-xs"
+                          style={{ color: FLAVOR_INFO[f].color }}
+                          title={FLAVOR_INFO[f].name + "味"}
+                        >
+                          {FLAVOR_INFO[f].emoji}
+                        </span>
+                      ))}
+                    </div>
                   </div>
                   <div className="text-xs text-gray-600 space-y-0.5">
                     <div>💥 伤害: {config.damage} | 📏 范围: {config.range}</div>

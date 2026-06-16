@@ -7,13 +7,47 @@ import {
   CANVAS_HEIGHT,
   TOWER_CONFIGS,
   ENEMY_CONFIGS,
+  FLAVOR_INFO,
+  REACTION_CONFIGS,
+  FLAVOR_HIT_DURATION,
 } from "@/game/config";
-import type { Enemy, Bullet, Tower, FloatingText } from "@/types/game";
+import type {
+  Enemy,
+  Bullet,
+  Tower,
+  FloatingText,
+  FlavorType,
+  ReactionType,
+  FlavorHit,
+} from "@/types/game";
 
 function distance(x1: number, y1: number, x2: number, y2: number) {
   const dx = x2 - x1;
   const dy = y2 - y1;
   return Math.sqrt(dx * dx + dy * dy);
+}
+
+function checkReaction(
+  hits: FlavorHit[],
+  baseFlavors: FlavorType[],
+  now: number
+): ReactionType | null {
+  const validHits = hits.filter((h) => now - h.timestamp < FLAVOR_HIT_DURATION);
+  const recentFlavors = new Set<FlavorType>();
+  for (const h of validHits) recentFlavors.add(h.flavor);
+  for (const f of baseFlavors) recentFlavors.add(f);
+
+  for (const reaction of Object.values(REACTION_CONFIGS)) {
+    const [f1, f2] = reaction.flavors;
+    if (recentFlavors.has(f1) && recentFlavors.has(f2)) {
+      return reaction.id;
+    }
+  }
+  return null;
+}
+
+function hasSameFlavorHit(hits: FlavorHit[], flavor: FlavorType, now: number): boolean {
+  return hits.some((h) => h.flavor === flavor && now - h.timestamp < FLAVOR_HIT_DURATION);
 }
 
 export function gameTick(now: number) {
@@ -37,10 +71,63 @@ export function gameTick(now: number) {
 
   const enemiesToRemove: string[] = [];
   const enemyUpdates: Map<string, Partial<Enemy>> = new Map();
+  const burnDamages: Map<string, number> = new Map();
 
   for (const enemy of state.enemies) {
+    const current = enemyUpdates.get(enemy.id) || {};
+    let newHits = enemy.flavorHits.filter(
+      (h) => now - h.timestamp < FLAVOR_HIT_DURATION
+    );
+
     if (enemy.hitFlash > 0) {
-      enemyUpdates.set(enemy.id, { hitFlash: Math.max(0, enemy.hitFlash - 16) });
+      current.hitFlash = Math.max(0, enemy.hitFlash - 16);
+    }
+
+    if (enemy.burnUntil > now && enemy.burnDamage > 0) {
+      const dps = enemy.burnDamage / 1000;
+      const tickDamage = dps * 16;
+      const prev = burnDamages.get(enemy.id) || 0;
+      burnDamages.set(enemy.id, prev + tickDamage);
+    }
+
+    const isFrozen = enemy.slowUntil > now && enemy.slowFactor === 0;
+    const isConfused = enemy.confusedUntil > now;
+
+    if (isFrozen) {
+      enemyUpdates.set(enemy.id, { ...current, flavorHits: newHits });
+      continue;
+    }
+
+    if (isConfused) {
+      if (enemy.pathIndex <= 0) {
+        enemyUpdates.set(enemy.id, { ...current, flavorHits: newHits });
+        continue;
+      }
+
+      const target = path[enemy.pathIndex - 1];
+      const dx = target.x - enemy.x;
+      const dy = target.y - enemy.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+
+      let speed = ENEMY_CONFIGS[enemy.type].speed;
+      if (enemy.slowUntil > now) {
+        speed *= enemy.slowFactor;
+      }
+      speed *= 0.6;
+
+      if (dist < speed * 2) {
+        current.x = target.x;
+        current.y = target.y;
+        current.pathIndex = enemy.pathIndex - 1;
+      } else {
+        const vx = (dx / dist) * speed;
+        const vy = (dy / dist) * speed;
+        current.x = enemy.x + vx;
+        current.y = enemy.y + vy;
+      }
+      current.flavorHits = newHits;
+      enemyUpdates.set(enemy.id, current);
+      continue;
     }
 
     if (enemy.pathIndex >= path.length - 1) {
@@ -60,19 +147,17 @@ export function gameTick(now: number) {
     }
 
     if (dist < speed * 2) {
-      enemyUpdates.set(enemy.id, {
-        x: target.x,
-        y: target.y,
-        pathIndex: enemy.pathIndex + 1,
-      });
+      current.x = target.x;
+      current.y = target.y;
+      current.pathIndex = enemy.pathIndex + 1;
     } else {
       const vx = (dx / dist) * speed;
       const vy = (dy / dist) * speed;
-      enemyUpdates.set(enemy.id, {
-        x: enemy.x + vx,
-        y: enemy.y + vy,
-      });
+      current.x = enemy.x + vx;
+      current.y = enemy.y + vy;
     }
+    current.flavorHits = newHits;
+    enemyUpdates.set(enemy.id, current);
   }
 
   for (const [id, updates] of enemyUpdates) {
@@ -104,6 +189,7 @@ export function gameTick(now: number) {
 
     if (nearestEnemy) {
       towerUpdates.set(tower.id, now);
+      const config = TOWER_CONFIGS[tower.type];
       newBullets.push({
         id: `b-${now}-${tower.id}`,
         x: pos.x,
@@ -112,6 +198,7 @@ export function gameTick(now: number) {
         damage: stats.damage,
         type: tower.type,
         speed: 6,
+        flavors: config.flavors,
       });
     }
   }
@@ -126,10 +213,20 @@ export function gameTick(now: number) {
   }
 
   const currState = useGameStore.getState();
+  const { baseFlavors } = currState;
   const bulletsToRemove: string[] = [];
   const newFloatingTexts: FloatingText[] = [];
   const enemyDamage: Map<string, number> = new Map();
   const enemySlow: Map<string, { until: number; factor: number }> = new Map();
+  const enemyFlavorHits: Map<string, FlavorHit[]> = new Map();
+  const enemyReactions: Map<string, ReactionType> = new Map();
+  const enemyBurn: Map<string, { until: number; damage: number }> = new Map();
+  const enemyConfuse: Map<string, number> = new Map();
+  const enemyBonusReward: Map<string, { until: number; mult: number }> =
+    new Map();
+  const enemyDefenseReduced: Map<string, boolean> = new Map();
+  const splashDamages: Map<string, { x: number; y: number; damage: number }> =
+    new Map();
 
   for (const bullet of currState.bullets) {
     const target = currState.enemies.find((e) => e.id === bullet.targetId);
@@ -142,33 +239,63 @@ export function gameTick(now: number) {
     if (d < 20) {
       bulletsToRemove.push(bullet.id);
 
+      let damage = bullet.damage;
+      if (enemyDefenseReduced.get(target.id)) {
+        damage = Math.floor(damage * 1.5);
+      }
+
       if (bullet.type === "chili") {
         for (const e of currState.enemies) {
           if (distance(target.x, target.y, e.x, e.y) <= 60) {
+            let dmg = damage;
+            if (enemyDefenseReduced.get(e.id)) {
+              dmg = Math.floor(dmg * 1.5);
+            }
             const prev = enemyDamage.get(e.id) || 0;
-            enemyDamage.set(e.id, prev + bullet.damage);
+            enemyDamage.set(e.id, prev + dmg);
+            for (const f of bullet.flavors) {
+              const hits = enemyFlavorHits.get(e.id) || [...e.flavorHits];
+              hits.push({ flavor: f, timestamp: now });
+              enemyFlavorHits.set(e.id, hits);
+            }
           }
         }
       } else if (bullet.type === "freezer") {
         const prev = enemyDamage.get(target.id) || 0;
-        enemyDamage.set(target.id, prev + bullet.damage);
+        enemyDamage.set(target.id, prev + damage);
         enemySlow.set(target.id, { until: now + 2000, factor: 0.5 });
+        for (const f of bullet.flavors) {
+          const hits = enemyFlavorHits.get(target.id) || [...target.flavorHits];
+          hits.push({ flavor: f, timestamp: now });
+          enemyFlavorHits.set(target.id, hits);
+        }
       } else {
         const prev = enemyDamage.get(target.id) || 0;
-        enemyDamage.set(target.id, prev + bullet.damage);
+        enemyDamage.set(target.id, prev + damage);
+        for (const f of bullet.flavors) {
+          const hits = enemyFlavorHits.get(target.id) || [...target.flavorHits];
+          hits.push({ flavor: f, timestamp: now });
+          enemyFlavorHits.set(target.id, hits);
+        }
       }
+
+      const bulletColor =
+        bullet.type === "chili"
+          ? "#E53935"
+          : bullet.type === "freezer"
+          ? "#4FC3F7"
+          : bullet.type === "vinegar"
+          ? "#FFEB3B"
+          : bullet.type === "wok"
+          ? "#FF5722"
+          : "#FFC107";
 
       newFloatingTexts.push({
         id: `ft-${now}-${bullet.id}`,
         x: target.x,
         y: target.y - 10,
-        text: `-${bullet.damage}`,
-        color:
-          bullet.type === "chili"
-            ? "#E53935"
-            : bullet.type === "freezer"
-            ? "#4FC3F7"
-            : "#FFC107",
+        text: `-${damage}`,
+        color: bulletColor,
         createdAt: now,
       });
     } else {
@@ -184,12 +311,97 @@ export function gameTick(now: number) {
     }
   }
 
+  for (const [eId, hits] of enemyFlavorHits) {
+    const enemy = currState.enemies.find((e) => e.id === eId);
+    if (!enemy) continue;
+
+    const reaction = checkReaction(hits, baseFlavors, now);
+    if (reaction && !enemyReactions.has(eId)) {
+      const canTrigger = now - enemy.lastReactionTime > 1500;
+      if (canTrigger) {
+        enemyReactions.set(eId, reaction);
+        const rcfg = REACTION_CONFIGS[reaction];
+
+        newFloatingTexts.push({
+          id: `rx-${now}-${eId}`,
+          x: enemy.x,
+          y: enemy.y - 35,
+          text: `${rcfg.emoji} ${rcfg.name}!`,
+          color: rcfg.color,
+          createdAt: now,
+        });
+
+        switch (reaction) {
+          case "sour_spicy":
+            enemyConfuse.set(eId, now + 3000);
+            break;
+          case "cold_umami":
+            enemyBonusReward.set(eId, {
+              until: now + 5000,
+              mult: 2,
+            });
+            break;
+          case "burnt_spicy": {
+            const baseDmg = enemyDamage.get(eId) || 10;
+            enemyBurn.set(eId, {
+              until: now + 4000,
+              damage: Math.floor(baseDmg * 0.8),
+            });
+            break;
+          }
+          case "sour_umami":
+            enemyDefenseReduced.set(eId, true);
+            const extraDmg = Math.floor((enemyDamage.get(eId) || 0) * 0.5);
+            const prev = enemyDamage.get(eId) || 0;
+            enemyDamage.set(eId, prev + extraDmg);
+            break;
+          case "cold_spicy":
+            enemySlow.set(eId, { until: now + 1500, factor: 0 });
+            break;
+          case "burnt_sour":
+            splashDamages.set(eId, {
+              x: enemy.x,
+              y: enemy.y,
+              damage: Math.floor((enemyDamage.get(eId) || 10) * 0.6),
+            });
+            break;
+        }
+
+        useGameStore.getState().incrementReactionCount(reaction);
+      }
+    }
+  }
+
+  for (const [splashId, splash] of splashDamages) {
+    for (const e of currState.enemies) {
+      if (e.id === splashId) continue;
+      if (distance(splash.x, splash.y, e.x, e.y) <= 70) {
+        let dmg = splash.damage;
+        if (enemyDefenseReduced.get(e.id)) {
+          dmg = Math.floor(dmg * 1.5);
+        }
+        const prev = enemyDamage.get(e.id) || 0;
+        enemyDamage.set(e.id, prev + dmg);
+      }
+    }
+  }
+
   for (const [eId, dmg] of enemyDamage) {
     const e = currState.enemies.find((x) => x.id === eId);
     if (!e) continue;
-    const newHp = e.hp - dmg;
+
+    let totalDmg = dmg;
+    const burnDmg = burnDamages.get(eId) || 0;
+    totalDmg += burnDmg;
+
+    const newHp = e.hp - totalDmg;
+
     if (newHp <= 0) {
-      const reward = ENEMY_CONFIGS[e.type].reward;
+      let reward = ENEMY_CONFIGS[e.type].reward;
+      const bonus = enemyBonusReward.get(eId);
+      if (bonus && bonus.until > now) {
+        reward = Math.floor(reward * bonus.mult);
+      }
       useGameStore.setState((s) => ({
         enemies: s.enemies.filter((x) => x.id !== eId),
         gold: s.gold + reward,
@@ -205,6 +417,12 @@ export function gameTick(now: number) {
       });
     } else {
       const slow = enemySlow.get(eId);
+      const burn = enemyBurn.get(eId);
+      const confuse = enemyConfuse.get(eId);
+      const bonusReward = enemyBonusReward.get(eId);
+      const reaction = enemyReactions.get(eId);
+      const flavorHits = enemyFlavorHits.get(eId) || e.flavorHits;
+
       useGameStore.setState((s) => ({
         enemies: s.enemies.map((x) =>
           x.id === eId
@@ -214,11 +432,40 @@ export function gameTick(now: number) {
                 hitFlash: 200,
                 slowUntil: slow ? slow.until : x.slowUntil,
                 slowFactor: slow ? slow.factor : x.slowFactor,
+                burnUntil: burn ? burn.until : x.burnUntil,
+                burnDamage: burn ? burn.damage : x.burnDamage,
+                confusedUntil: confuse ? confuse : x.confusedUntil,
+                bonusRewardUntil: bonusReward
+                  ? bonusReward.until
+                  : x.bonusRewardUntil,
+                bonusRewardMultiplier: bonusReward
+                  ? bonusReward.mult
+                  : x.bonusRewardMultiplier,
+                lastReaction: reaction ? reaction : x.lastReaction,
+                lastReactionTime: reaction ? now : x.lastReactionTime,
+                flavorHits,
               }
             : x
         ),
       }));
     }
+  }
+
+  for (const [eId, burn] of enemyBurn) {
+    const e = currState.enemies.find((x) => x.id === eId);
+    if (!e) continue;
+    if (enemyDamage.has(eId)) continue;
+    useGameStore.setState((s) => ({
+      enemies: s.enemies.map((x) =>
+        x.id === eId
+          ? {
+              ...x,
+              burnUntil: burn.until,
+              burnDamage: burn.damage,
+            }
+          : x
+      ),
+    }));
   }
 
   for (const id of bulletsToRemove) {
@@ -281,6 +528,14 @@ export async function spawnWaveEnemies(waveIndex: number) {
         slowUntil: 0,
         slowFactor: 1,
         hitFlash: 0,
+        flavorHits: [],
+        burnUntil: 0,
+        burnDamage: 0,
+        confusedUntil: 0,
+        bonusRewardUntil: 0,
+        bonusRewardMultiplier: 1,
+        lastReaction: null,
+        lastReactionTime: 0,
       });
       await new Promise((r) => setTimeout(r, group.delay));
     }
@@ -442,17 +697,58 @@ export function drawBattlefield(
     }
   }
 
+  const nowDraw = performance.now();
+
   for (const enemy of state.enemies) {
     const cfg = ENEMY_CONFIGS[enemy.type];
-    const isFrozen = enemy.slowUntil > performance.now();
+    const isFrozen = enemy.slowUntil > nowDraw && enemy.slowFactor === 0;
+    const isSlowed = enemy.slowUntil > nowDraw && enemy.slowFactor > 0;
+    const isBurning = enemy.burnUntil > nowDraw;
+    const isConfused = enemy.confusedUntil > nowDraw;
+    const hasBonus = enemy.bonusRewardUntil > nowDraw;
     const scale = enemy.type === "boss" ? 1.5 : 1;
     const r = 16 * scale;
 
+    if (isBurning) {
+      ctx.fillStyle = "rgba(255,87,34,0.25)";
+      ctx.beginPath();
+      ctx.arc(enemy.x, enemy.y, r + 8, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.font = `${10 * scale}px sans-serif`;
+      ctx.textAlign = "center";
+      ctx.fillText("🔥", enemy.x + r - 4, enemy.y - r + 4);
+    }
+
     if (isFrozen) {
-      ctx.fillStyle = "rgba(79,195,247,0.3)";
+      ctx.fillStyle = "rgba(79,195,247,0.5)";
       ctx.beginPath();
       ctx.arc(enemy.x, enemy.y, r + 6, 0, Math.PI * 2);
       ctx.fill();
+      ctx.strokeStyle = "#4FC3F7";
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    } else if (isSlowed) {
+      ctx.fillStyle = "rgba(79,195,247,0.2)";
+      ctx.beginPath();
+      ctx.arc(enemy.x, enemy.y, r + 4, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    if (isConfused) {
+      ctx.font = `${12 * scale}px sans-serif`;
+      ctx.textAlign = "center";
+      const offset = Math.sin(nowDraw / 200) * 2;
+      ctx.fillText("😵", enemy.x, enemy.y - r - 4 + offset);
+    }
+
+    if (hasBonus) {
+      ctx.fillStyle = "rgba(255,215,0,0.3)";
+      ctx.beginPath();
+      ctx.arc(enemy.x, enemy.y, r + 10, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.font = `${10 * scale}px sans-serif`;
+      ctx.fillText("💰", enemy.x - r + 2, enemy.y - r + 4);
     }
 
     if (enemy.hitFlash > 0) {
@@ -490,6 +786,8 @@ export function drawBattlefield(
     let color = "#FFC107";
     if (bullet.type === "chili") color = "#E53935";
     if (bullet.type === "freezer") color = "#4FC3F7";
+    if (bullet.type === "vinegar") color = "#FFEB3B";
+    if (bullet.type === "wok") color = "#FF5722";
 
     ctx.fillStyle = color;
     ctx.beginPath();
@@ -501,9 +799,15 @@ export function drawBattlefield(
     ctx.arc(bullet.x - 2, bullet.y - 2, 2, 0, Math.PI * 2);
     ctx.fill();
 
-    ctx.font = "12px sans-serif";
-    ctx.fillStyle = "rgba(0,0,0,0)";
-    ctx.fillText(cfg.emoji, bullet.x, bullet.y);
+    if (bullet.flavors && bullet.flavors.length > 0) {
+      ctx.font = "8px sans-serif";
+      ctx.textAlign = "center";
+      ctx.fillText(
+        bullet.flavors.map((f) => FLAVOR_INFO[f].emoji).join(""),
+        bullet.x,
+        bullet.y + 14
+      );
+    }
   }
 
   const now = performance.now();

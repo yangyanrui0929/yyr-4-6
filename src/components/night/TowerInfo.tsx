@@ -1,10 +1,10 @@
 import { useGameStore, getTowerStats } from "@/store/useGameStore";
-import { TOWER_CONFIGS } from "@/game/config";
+import { TOWER_CONFIGS, FLAVOR_INFO, REACTION_CONFIGS } from "@/game/config";
 import Card from "@/components/common/Card";
 import { ArrowUp, Trash2, X } from "lucide-react";
 
 export default function TowerInfo() {
-  const { selectedTowerId, towers, gold, upgradeTower, sellTower, selectTower } =
+  const { selectedTowerId, towers, gold, upgradeTower, sellTower, selectTower, baseFlavors } =
     useGameStore();
 
   const tower = towers.find((t) => t.id === selectedTowerId);
@@ -84,7 +84,44 @@ export default function TowerInfo() {
           <span className="text-gray-600">✨ 特效</span>
           <span className="font-medium text-kitchen-warm">{config.special}</span>
         </div>
+        <div className="flex justify-between items-center">
+          <span className="text-gray-600">🍽️ 味型</span>
+          <div className="flex gap-1">
+            {config.flavors.map((f) => (
+              <span
+                key={f}
+                className="text-lg"
+                style={{ color: FLAVOR_INFO[f].color }}
+                title={FLAVOR_INFO[f].name + "味"}
+              >
+                {FLAVOR_INFO[f].emoji}
+              </span>
+            ))}
+          </div>
+        </div>
       </div>
+
+      {baseFlavors.length > 0 && (
+        <div className="mb-4 p-2 bg-purple-50 rounded-lg border border-purple-200">
+          <div className="text-xs text-purple-700 font-medium mb-1">⚡ 可触发反应</div>
+          <div className="space-y-1">
+            {Object.values(REACTION_CONFIGS)
+              .filter((r) => {
+                const allFlavors = new Set([...baseFlavors, ...config.flavors]);
+                return r.flavors.every((f) => allFlavors.has(f));
+              })
+              .map((r) => (
+                <div
+                  key={r.id}
+                  className="flex items-center gap-1 text-xs text-purple-800"
+                >
+                  <span>{r.emoji}</span>
+                  <span className="font-medium">{r.name}</span>
+                </div>
+              ))}
+          </div>
+        </div>
+      )}
 
       <div className="space-y-2">
         <button

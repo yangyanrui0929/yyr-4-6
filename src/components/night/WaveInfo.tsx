@@ -1,5 +1,5 @@
 import { useGameStore } from "@/store/useGameStore";
-import { ENEMY_CONFIGS } from "@/game/config";
+import { ENEMY_CONFIGS, FLAVOR_INFO, REACTION_CONFIGS } from "@/game/config";
 import Card from "@/components/common/Card";
 import { Play, Pause } from "lucide-react";
 
@@ -17,6 +17,8 @@ export default function WaveInfo() {
     togglePause,
     getCurrentWaves,
     waveReward,
+    baseFlavors,
+    reactionCounts,
   } = useGameStore();
 
   const waves = getCurrentWaves();
@@ -121,6 +123,59 @@ export default function WaveInfo() {
             <div className="text-sm text-green-600 mt-1">即将进入结算...</div>
           </div>
         )}
+      </div>
+
+      <div className="mt-4 p-3 bg-purple-50 rounded-lg border border-purple-200">
+        <div className="font-bold text-purple-800 text-sm mb-2">🍽️ 今日味场</div>
+        {baseFlavors.length > 0 ? (
+          <div className="flex gap-2 flex-wrap">
+            {baseFlavors.map((f) => (
+              <div
+                key={f}
+                className="flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium"
+                style={{
+                  backgroundColor: FLAVOR_INFO[f].color + "30",
+                  color: FLAVOR_INFO[f].color,
+                  border: `1px solid ${FLAVOR_INFO[f].color}`,
+                }}
+              >
+                <span>{FLAVOR_INFO[f].emoji}</span>
+                <span>{FLAVOR_INFO[f].name}味</span>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="text-xs text-gray-500">暂无基础味场（白天做菜后产生）</div>
+        )}
+        <div className="text-xs text-purple-600 mt-2">
+          💡 基础味场 + 塔味型 = 触发味型反应！
+        </div>
+      </div>
+
+      <div className="mt-3 p-3 bg-amber-50 rounded-lg border border-amber-200">
+        <div className="font-bold text-amber-800 text-sm mb-2">⚡ 味型反应</div>
+        <div className="space-y-1.5">
+          {Object.values(REACTION_CONFIGS).map((r) => {
+            const count = reactionCounts[r.id] || 0;
+            return (
+              <div
+                key={r.id}
+                className={`flex items-center justify-between text-xs ${
+                  count > 0 ? "text-amber-900" : "text-gray-400"
+                }`}
+              >
+                <div className="flex items-center gap-1">
+                  <span className="text-sm">{r.emoji}</span>
+                  <span className="font-medium">{r.name}</span>
+                  <span className="text-gray-400">
+                    {r.flavors.map((f) => FLAVOR_INFO[f].emoji).join("+")}
+                  </span>
+                </div>
+                <span className="font-bold">{count}次</span>
+              </div>
+            );
+          })}
+        </div>
       </div>
 
       <div className="mt-4 pt-4 border-t border-gray-100 text-xs text-gray-500 space-y-1">

@@ -1,8 +1,32 @@
 export type GamePhase = "day" | "night" | "settlement";
 
-export type TowerType = "spatula" | "chili" | "freezer";
+export type TowerType = "spatula" | "chili" | "freezer" | "vinegar" | "wok";
 
 export type EnemyType = "cabbage" | "potato" | "tomato" | "meat" | "boss";
+
+export type FlavorType = "sour" | "spicy" | "umami" | "cold" | "burnt";
+
+export type ReactionType =
+  | "sour_spicy"
+  | "cold_umami"
+  | "burnt_spicy"
+  | "sour_umami"
+  | "cold_spicy"
+  | "burnt_sour";
+
+export interface FlavorHit {
+  flavor: FlavorType;
+  timestamp: number;
+}
+
+export interface ReactionConfig {
+  id: ReactionType;
+  name: string;
+  emoji: string;
+  description: string;
+  color: string;
+  flavors: [FlavorType, FlavorType];
+}
 
 export interface Ingredient {
   id: string;
@@ -20,6 +44,7 @@ export interface Recipe {
   sellPrice: number;
   maxPrepare: number;
   prepared: number;
+  flavors: FlavorType[];
 }
 
 export interface TowerConfig {
@@ -33,6 +58,7 @@ export interface TowerConfig {
   special?: string;
   upgradeCost: number;
   upgradeMultiplier: number;
+  flavors: FlavorType[];
 }
 
 export interface Tower {
@@ -65,6 +91,14 @@ export interface Enemy {
   slowUntil: number;
   slowFactor: number;
   hitFlash: number;
+  flavorHits: FlavorHit[];
+  burnUntil: number;
+  burnDamage: number;
+  confusedUntil: number;
+  bonusRewardUntil: number;
+  bonusRewardMultiplier: number;
+  lastReaction: ReactionType | null;
+  lastReactionTime: number;
 }
 
 export interface Bullet {
@@ -75,6 +109,7 @@ export interface Bullet {
   damage: number;
   type: TowerType;
   speed: number;
+  flavors: FlavorType[];
 }
 
 export interface WaveConfig {
@@ -113,4 +148,6 @@ export interface GameState {
   gridPath: { x: number; y: number }[];
   isPaused: boolean;
   gameOver: boolean;
+  baseFlavors: FlavorType[];
+  reactionCounts: Record<ReactionType, number>;
 }

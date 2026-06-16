@@ -4,6 +4,9 @@ import type {
   TowerConfig,
   EnemyConfig,
   WaveConfig,
+  FlavorType,
+  ReactionConfig,
+  ReactionType,
 } from "@/types/game";
 
 export const GRID_COLS = 15;
@@ -28,6 +31,67 @@ export const PIXEL_PATH = GRID_PATH.map((p) => ({
   y: p.y * CELL_SIZE + CELL_SIZE / 2,
 }));
 
+export const FLAVOR_INFO: Record<FlavorType, { name: string; emoji: string; color: string }> = {
+  sour: { name: "酸", emoji: "🍋", color: "#FFEB3B" },
+  spicy: { name: "辣", emoji: "🌶️", color: "#F44336" },
+  umami: { name: "鲜", emoji: "🍄", color: "#8D6E63" },
+  cold: { name: "冷", emoji: "🧊", color: "#4FC3F7" },
+  burnt: { name: "焦", emoji: "🔥", color: "#FF5722" },
+};
+
+export const REACTION_CONFIGS: Record<ReactionType, ReactionConfig> = {
+  sour_spicy: {
+    id: "sour_spicy",
+    name: "酸辣反应",
+    emoji: "😵",
+    description: "敌人混乱折返，向回走3秒",
+    color: "#FF9800",
+    flavors: ["sour", "spicy"],
+  },
+  cold_umami: {
+    id: "cold_umami",
+    name: "冷鲜反应",
+    emoji: "💎",
+    description: "击杀奖励翻倍",
+    color: "#00BCD4",
+    flavors: ["cold", "umami"],
+  },
+  burnt_spicy: {
+    id: "burnt_spicy",
+    name: "焦辣反应",
+    emoji: "🔥",
+    description: "持续灼烧，每秒造成伤害",
+    color: "#FF5722",
+    flavors: ["burnt", "spicy"],
+  },
+  sour_umami: {
+    id: "sour_umami",
+    name: "酸鲜反应",
+    emoji: "💧",
+    description: "敌人防御降低，受到伤害增加50%",
+    color: "#CDDC39",
+    flavors: ["sour", "umami"],
+  },
+  cold_spicy: {
+    id: "cold_spicy",
+    name: "冷辣反应",
+    emoji: "❄️",
+    description: "敌人冰冻1.5秒无法移动",
+    color: "#2196F3",
+    flavors: ["cold", "spicy"],
+  },
+  burnt_sour: {
+    id: "burnt_sour",
+    name: "焦酸反应",
+    emoji: "💥",
+    description: "爆炸伤害，对周围敌人造成溅射",
+    color: "#9C27B0",
+    flavors: ["burnt", "sour"],
+  },
+};
+
+export const FLAVOR_HIT_DURATION = 4000;
+
 export const INITIAL_INGREDIENTS: Ingredient[] = [
   { id: "cabbage", name: "白菜", emoji: "🥬", price: 8, count: 0 },
   { id: "potato", name: "土豆", emoji: "🥔", price: 6, count: 0 },
@@ -49,6 +113,7 @@ export const INITIAL_RECIPES: Recipe[] = [
     sellPrice: 35,
     maxPrepare: 10,
     prepared: 0,
+    flavors: ["sour", "spicy"],
   },
   {
     id: "potato_shreds",
@@ -61,6 +126,7 @@ export const INITIAL_RECIPES: Recipe[] = [
     sellPrice: 30,
     maxPrepare: 10,
     prepared: 0,
+    flavors: ["sour", "spicy"],
   },
   {
     id: "tomato_egg",
@@ -73,6 +139,7 @@ export const INITIAL_RECIPES: Recipe[] = [
     sellPrice: 40,
     maxPrepare: 10,
     prepared: 0,
+    flavors: ["umami", "sour"],
   },
   {
     id: "braised_pork",
@@ -85,6 +152,7 @@ export const INITIAL_RECIPES: Recipe[] = [
     sellPrice: 90,
     maxPrepare: 5,
     prepared: 0,
+    flavors: ["umami", "burnt"],
   },
   {
     id: "mapo_tofu",
@@ -97,6 +165,19 @@ export const INITIAL_RECIPES: Recipe[] = [
     sellPrice: 55,
     maxPrepare: 8,
     prepared: 0,
+    flavors: ["spicy", "umami"],
+  },
+  {
+    id: "ice_cucumber",
+    name: "冰镇黄瓜",
+    emoji: "🥒",
+    ingredients: [
+      { ingredientId: "cabbage", count: 1 },
+    ],
+    sellPrice: 25,
+    maxPrepare: 8,
+    prepared: 0,
+    flavors: ["cold", "sour"],
   },
 ];
 
@@ -112,6 +193,7 @@ export const TOWER_CONFIGS: Record<string, TowerConfig> = {
     special: "平衡型单体攻击",
     upgradeCost: 40,
     upgradeMultiplier: 1.4,
+    flavors: ["umami"],
   },
   chili: {
     type: "chili",
@@ -124,6 +206,7 @@ export const TOWER_CONFIGS: Record<string, TowerConfig> = {
     special: "范围溅射伤害",
     upgradeCost: 60,
     upgradeMultiplier: 1.5,
+    flavors: ["spicy"],
   },
   freezer: {
     type: "freezer",
@@ -136,6 +219,33 @@ export const TOWER_CONFIGS: Record<string, TowerConfig> = {
     special: "减速敌人 50%",
     upgradeCost: 50,
     upgradeMultiplier: 1.3,
+    flavors: ["cold"],
+  },
+  vinegar: {
+    type: "vinegar",
+    name: "醋瓶塔",
+    emoji: "🍶",
+    cost: 60,
+    damage: 8,
+    range: 115,
+    fireRate: 900,
+    special: "降低敌人防御",
+    upgradeCost: 45,
+    upgradeMultiplier: 1.4,
+    flavors: ["sour"],
+  },
+  wok: {
+    type: "wok",
+    name: "炒锅塔",
+    emoji: "🍲",
+    cost: 90,
+    damage: 20,
+    range: 90,
+    fireRate: 1400,
+    special: "高伤害焦香攻击",
+    upgradeCost: 70,
+    upgradeMultiplier: 1.5,
+    flavors: ["burnt"],
   },
 };
 
