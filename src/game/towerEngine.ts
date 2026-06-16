@@ -33,12 +33,19 @@ function checkReaction(
   now: number
 ): ReactionType | null {
   const validHits = hits.filter((h) => now - h.timestamp < FLAVOR_HIT_DURATION);
-  const recentFlavors = new Set<FlavorType>();
-  for (const h of validHits) recentFlavors.add(h.flavor);
+  const hitFlavors = new Set<FlavorType>();
+  for (const h of validHits) hitFlavors.add(h.flavor);
+
+  if (hitFlavors.size < 2) return null;
+
+  const recentFlavors = new Set<FlavorType>(hitFlavors);
   for (const f of baseFlavors) recentFlavors.add(f);
 
   for (const reaction of Object.values(REACTION_CONFIGS)) {
     const [f1, f2] = reaction.flavors;
+    const hitHasF1 = hitFlavors.has(f1);
+    const hitHasF2 = hitFlavors.has(f2);
+    if (!hitHasF1 && !hitHasF2) continue;
     if (recentFlavors.has(f1) && recentFlavors.has(f2)) {
       return reaction.id;
     }
@@ -466,6 +473,54 @@ export function gameTick(now: number) {
           : x
       ),
     }));
+  }
+
+  for (const [eId, burnTick] of burnDamages) {
+    if (enemyDamage.has(eId)) continue;
+    const e = currState.enemies.find((x) => x.id === eId);
+    if (!e) continue;
+    if (burnTick <= 0) continue;
+
+    const newHp = e.hp - burnTick;
+    if (newHp <= 0) {
+      let reward = ENEMY_CONFIGS[e.type].reward;
+      if (e.bonusRewardUntil > now) {
+        reward = Math.floor(reward * e.bonusRewardMultiplier);
+      }
+      useGameStore.setState((s) => ({
+        enemies: s.enemies.filter((x) => x.id !== eId),
+        gold: s.gold + reward,
+        waveReward: s.waveReward + reward,
+      }));
+      newFloatingTexts.push({
+        id: `burn-kill-${now}-${eId}`,
+        x: e.x,
+        y: e.y - 20,
+        text: `+💰${reward}`,
+        color: "#FFD700",
+        createdAt: now,
+      });
+    } else {
+      useGameStore.setState((s) => ({
+        enemies: s.enemies.map((x) =>
+          x.id === eId
+            ? {
+                ...x,
+                hp: newHp,
+                hitFlash: 120,
+              }
+            : x
+        ),
+      }));
+      newFloatingTexts.push({
+        id: `burn-${now}-${eId}`,
+        x: e.x,
+        y: e.y - 10,
+        text: `🔥-${Math.ceil(burnTick)}`,
+        color: "#FF5722",
+        createdAt: now,
+      });
+    }
   }
 
   for (const id of bulletsToRemove) {
